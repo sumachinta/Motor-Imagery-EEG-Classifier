@@ -2,6 +2,7 @@ import numpy as np
 import mne
 
 BANDS = {"alpha": (8,13), "beta": (13,30)} 
+# BANDS = {"alpha": (8,12), "beta": (12,16), "gamma": (16,26), "high_gamma": (26,30)}
 
 def epochs_to_bandpower(epochs, bands=BANDS, log=True):
     """Return X (n_epochs, n_chan* n_bands), y (labels), ch_names, band_names."""
