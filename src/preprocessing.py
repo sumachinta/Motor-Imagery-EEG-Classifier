@@ -73,13 +73,12 @@ def get_events_and_ids_eegbci(raw: mne.io.BaseRaw) -> Tuple[np.ndarray, Dict[str
     # recode to global ids based on run type
     if run in _EEGBCI_BOTH_RUNS:
         # T1 → both_fists(3), T2 → both_feet(4)
-        if code_T1 is not None: events[events[:,2] == code_T1, 2] = 3
-        if code_T2 is not None: events[events[:,2] == code_T2, 2] = 4
+        code_map = {code_T1: 3, code_T2: 4}
     else:
         # default & fist runs: T1 → left(1), T2 → right(2)
-        if code_T1 is not None: events[events[:,2] == code_T1, 2] = 1
-        if code_T2 is not None: events[events[:,2] == code_T2, 2] = 2
+        code_map = {code_T1: 1, code_T2: 2}
 
+    events[:, 2] = np.array([code_map.get(c, c) for c in events[:, 2]], dtype=int)
     event_id = {"left":1, "right":2, "both_fists":3, "both_feet":4}
     inv_map  = {v:k for k,v in event_id.items()}
     events[:, 2] = events[:, 2].astype(int)
