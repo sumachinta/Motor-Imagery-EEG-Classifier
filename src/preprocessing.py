@@ -49,58 +49,40 @@ def eegbci_event_map_for_run(run: int, two_class_only: bool = True) -> Dict[str,
     return {"left": 1, "right": 2}
 
 
-def get_events_and_ids_eegbci(raw: mne.io.BaseRaw, two_class_only: bool = True
-                             ) -> Tuple[np.ndarray, Dict[str,int], Dict[int,str], int]:
-    """Return (events, event_id, inv_map, run) with events[:,2] recoded to match event_id."""
+def get_events_and_ids_eegbci(raw: mne.io.BaseRaw) -> Tuple[np.ndarray, Dict[str,int], Dict[int,str], int]:
+    """Returns (events, event_id, inv_map, run).
+    events: (n_events, 3) array of (onset, 0, event_id)
+    event_id: mapping of event name to id
+    inv_map: mapping of id to event name
+    run: inferred run number from filename (or -1 if unknown)
+    Note: recodes event ids to global scheme: left(1), right(2), both_fists(3), both_feet(4) based on run type. Ignores rest(T0) events.
+      """
     fname = (raw.filenames[0] if getattr(raw, "filenames", None) else "") or ""
     run = _infer_run_number_from_fname(fname) or -1
 
     events, anno_map = mne.events_from_annotations(raw, verbose=False)
-    # Original ints for T0/T1/T2 (order can vary; read from anno_map)
-    code_T0 = anno_map.get('T0', None)
-    code_T1 = anno_map.get('T1', None)
-    code_T2 = anno_map.get('T2', None)
+    code_T1, code_T2 = anno_map.get('T1'), anno_map.get('T2')
 
+    if code_T1 is None and code_T2 is None:
+        return events[:0], {"left":1,"right":2,"both_fists":3,"both_feet":4}, {1:"left",2:"right",3:"both_fists",4:"both_feet"}, run
+    
+    # keep only T1/T2 events (drop T0/rest)
+    keep = np.isin(events[:, 2], [c for c in (code_T1, code_T2) if c is not None])
+    events = events[keep].copy()
+
+    # recode to global ids based on run type
     if run in _EEGBCI_BOTH_RUNS:
-        # Both-fists vs both-feet runs
-        desired_names = ('both_fists', 'both_feet')
+        # T1 → both_fists(3), T2 → both_feet(4)
+        if code_T1 is not None: events[events[:,2] == code_T1, 2] = 3
+        if code_T2 is not None: events[events[:,2] == code_T2, 2] = 4
     else:
-        # Fist left vs right runs (default)
-        desired_names = ('left', 'right')
+        # default & fist runs: T1 → left(1), T2 → right(2)
+        if code_T1 is not None: events[events[:,2] == code_T1, 2] = 1
+        if code_T2 is not None: events[events[:,2] == code_T2, 2] = 2
 
-    if two_class_only:
-        event_id = {desired_names[0]: 1, desired_names[1]: 2}
-    else:
-        event_id = {'rest': 0, desired_names[0]: 1, desired_names[1]: 2}
-
-    # Filter to the two classes (drop rest)
-    keep_codes = [c for c in (code_T1, code_T2) if c is not None]
-    mask = np.isin(events[:, 2], keep_codes)
-    events = events[mask]
-
-    # Recode: T1 -> 1, T2 -> 2  (match event_id)
-    recoded = events[:, 2].copy()
-    if code_T1 is not None:
-        recoded[recoded == code_T1] = 1
-    if code_T2 is not None:
-        recoded[recoded == code_T2] = 2
-    events[:, 2] = recoded.astype(int)
-
-    inv_map = {v: k for k, v in event_id.items()}  # 1->'left' etc.
+    event_id = {"left":1, "right":2, "both_fists":3, "both_feet":4}
+    inv_map  = {v:k for k,v in event_id.items()}
+    events[:, 2] = events[:, 2].astype(int)
     return events, event_id, inv_map, run
 
-def make_epochs(raw: mne.io.BaseRaw,
-                events: np.ndarray,
-                event_id: Dict[str, int],
-                tmin: float = -0.2,
-                tmax: float = 0.8,
-                baseline = (None, 0),
-                reject_ptp_uV: float = 150.0,
-                flat_uV: float = 1.0) -> mne.Epochs:
-    reject = dict(eeg=reject_ptp_uV * 1e-6)
-    flat   = dict(eeg=flat_uV * 1e-6)
-    epochs = mne.Epochs(raw, events, event_id=event_id,
-                        tmin=tmin, tmax=tmax,
-                        baseline=baseline, preload=True,
-                        reject=reject, flat=flat, verbose=False)
-    return epochs
+
