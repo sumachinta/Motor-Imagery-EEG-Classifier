@@ -85,6 +85,22 @@ def make_eegnet(EpochData: EpochDataset, F1: int = 8, D: int = 2, drop: float = 
                   D=D, 
                   drop_prob=drop)
 
+def makeEEGclassifier(module, classes_):
+    return EEGClassifier(
+            module=module,
+            criterion=nn.CrossEntropyLoss(),
+            optimizer=torch.optim.Adam,
+            lr=0.0005,
+            batch_size=32,
+            max_epochs=50,
+            device=get_device(),
+            train_split=ValidSplit(0.2, stratified=True, random_state=42),
+            callbacks=[
+                ('es', EarlyStopping(patience=5, monitor='valid_loss')),
+                ('lr', LRScheduler('ReduceLROnPlateau', monitor='valid_loss', patience=5)),
+            ], classes=classes_)
+
+
 
 def eval_with_preproc(EpochData: EpochDataset, build_module, preproc_pair_fn=None, *, n_splits=5, plot_curves=False, saveFigs=False, filepath):
     """preproc_pair_fn(X_tr, X_te) -> (X_tr_prep, X_te_prep).
@@ -103,19 +119,7 @@ def eval_with_preproc(EpochData: EpochDataset, build_module, preproc_pair_fn=Non
         else:
             Xtr_p, Xte_p = preproc_pair_fn(Xtr, Xte)
 
-        clf = EEGClassifier(
-                module=build_module(),
-                criterion=nn.CrossEntropyLoss(),
-                optimizer=torch.optim.Adam,
-                lr=0.0005,
-                batch_size=32,
-                max_epochs=50,
-                device=get_device(),
-                train_split=ValidSplit(0.2, stratified=True, random_state=42),
-                callbacks=[
-                    ('es', EarlyStopping(patience=5, monitor='valid_loss')),
-                    ('lr', LRScheduler('ReduceLROnPlateau', monitor='valid_loss', patience=5)),
-                ], classes=classes_)
+        clf = makeEEGclassifier(build_module(), classes_)
         
         clf.fit(Xtr_p, y[tr])
         if plot_curves:
