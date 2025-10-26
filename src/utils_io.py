@@ -77,34 +77,23 @@ def get_device():
         return torch.device("cpu")
     
 
-def make_eegnet(F1=8, D=2, drop=0.25):
-    return EEGNet(n_chans=n_ch, 
-                  n_outputs=n_classes, 
-                  n_times=n_t, 
+def make_eegnet(EpochData: EpochDataset, F1: int = 8, D: int = 2, drop: float = 0.25):
+    return EEGNet(n_chans=EpochData.n_ch, 
+                  n_outputs=EpochData.n_classes, 
+                  n_times=EpochData.n_t, 
                   F1=F1, 
                   D=D, 
                   drop_prob=drop)
 
-def make_eeg_clf(module, batch=32, epochs=50):
-    return EEGClassifier(
-        module=module,
-        criterion=nn.CrossEntropyLoss(),
-        optimizer=torch.optim.Adam,
-        lr=0.0005,
-        batch_size=batch,
-        max_epochs=epochs,
-        device=DEVICE,
-        train_split=ValidSplit(0.2, stratified=True, random_state=42),
-        callbacks=[
-            ('es', EarlyStopping(patience=5, monitor='valid_loss')),
-            ('lr', LRScheduler('ReduceLROnPlateau', monitor='valid_loss', patience=5)),
-        ],
-        classes=classes_,
-    )
 
-def eval_with_preproc(X, y, groups, build_module, preproc_pair_fn=None, *, n_splits=5, plot_curves=False, saveFigs=False, filepath):
+def eval_with_preproc(EpochData: EpochDataset, build_module, preproc_pair_fn=None, *, n_splits=5, plot_curves=False, saveFigs=False, filepath):
     """preproc_pair_fn(X_tr, X_te) -> (X_tr_prep, X_te_prep).
        If None, identity (no preprocessing)."""
+    X = EpochData.X
+    y = EpochData.y
+    classes_ = EpochData.classes_
+    groups = EpochData.subjects
+
     gkf = GroupKFold(n_splits=min(n_splits, np.unique(groups).size))
     baseline_acc = []
     for fold, (tr, te) in enumerate(gkf.split(X, y, groups)):
@@ -114,7 +103,20 @@ def eval_with_preproc(X, y, groups, build_module, preproc_pair_fn=None, *, n_spl
         else:
             Xtr_p, Xte_p = preproc_pair_fn(Xtr, Xte)
 
-        clf = make_eeg_clf(build_module())
+        clf = EEGClassifier(
+                module=build_module(),
+                criterion=nn.CrossEntropyLoss(),
+                optimizer=torch.optim.Adam,
+                lr=0.0005,
+                batch_size=32,
+                max_epochs=50,
+                device=get_device(),
+                train_split=ValidSplit(0.2, stratified=True, random_state=42),
+                callbacks=[
+                    ('es', EarlyStopping(patience=5, monitor='valid_loss')),
+                    ('lr', LRScheduler('ReduceLROnPlateau', monitor='valid_loss', patience=5)),
+                ], classes=classes_)
+        
         clf.fit(Xtr_p, y[tr])
         if plot_curves:
             plot_training_curves(clf, "EEGNet baseline training")
