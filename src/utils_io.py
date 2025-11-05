@@ -13,7 +13,59 @@ from braindecode.models import EEGNet, ShallowFBCSPNet
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from typing import Optional
+import pyedflib
 
+def edfMetadata(reader):
+    """
+    Inspect high-level info + per-channel metadata.
+    """
+    return {
+        "nChannels": reader.signals_in_file,
+        "channelLabels": reader.getSignalLabels(),
+        "sampleRates": [reader.getSampleFrequency(i) for i in range(reader.signals_in_file)],
+        "physicalMin": [reader.getPhysicalMinimum(i) for i in range(reader.signals_in_file)],
+        "physicalMax": [reader.getPhysicalMaximum(i) for i in range(reader.signals_in_file)],
+        "prefilter": [reader.getPrefilter(i) for i in range(reader.signals_in_file)],
+        "transducer": [reader.getTransducer(i) for i in range(reader.signals_in_file)],
+    }
+
+
+def read_channel(reader, channel_label, start_sec=None, stop_sec=None):
+    """
+    Read one channel as physical units (typically microvolts).
+    channel_label: channel index (int) or label (str)
+    start_sec/stop_sec: optional time window (in seconds).
+    Returns (time, signal, fs, channel_label)
+    """
+    # Resolve channel index
+    if isinstance(channel_label, str):
+        labels = reader.getSignalLabels()
+        try:
+            ch_idx = labels.index(channel_label)
+        except ValueError:
+            raise ValueError(f"Channel label '{channel_label}' not found. Available: {labels}")
+        channel_label = channel_label
+    else:
+        ch_idx = int(channel_label)
+        channel_label = reader.getSignalLabels()[ch_idx]
+
+    fs = reader.getSampleFrequency(ch_idx)
+    n = edf_reader.getNSamples()[ch_idx]
+
+    if start_sec is None:
+        start_sec = 0.0
+    if stop_sec is None:
+        stop_sec = n / fs
+
+    start_sample = int(np.floor(start_sec * fs))
+    stop_sample  = int(np.floor(stop_sec * fs))
+    start_sample = max(0, start_sample)
+    stop_sample  = min(n, stop_sample)
+
+    # pyEDFlib returns physical values already scaled to units defined in header
+    signal = reader.readSignal(ch_idx, start_sample, stop_sample - start_sample)
+    time = np.arange(start_sample, stop_sample) / fs
+    return time, signal, fs, channel_label
 
 @dataclass
 class EpochDataset:
@@ -56,9 +108,6 @@ class EpochDataset:
         return info
 
     
-    
-
-
 def set_seeds(seed: int = 42):
     random.seed(seed)
     np.random.seed(seed)
