@@ -50,7 +50,7 @@ def read_channel(reader, channel_label, start_sec=None, stop_sec=None):
         channel_label = reader.getSignalLabels()[ch_idx]
 
     fs = reader.getSampleFrequency(ch_idx)
-    n = edf_reader.getNSamples()[ch_idx]
+    n = reader.getNSamples()[ch_idx]
 
     if start_sec is None:
         start_sec = 0.0
@@ -67,6 +67,24 @@ def read_channel(reader, channel_label, start_sec=None, stop_sec=None):
     time = np.arange(start_sample, stop_sample) / fs
     return time, signal, fs, channel_label
 
+def read_annotations(reader):
+    """
+    Returns EDF+ annotations if available:
+    list of dicts with onset_sec, duration_sec, description
+    """
+    try:
+        anns = reader.readAnnotations()
+        onsets, durations, descs = anns
+        out = []
+        for o, d, s in zip(onsets, durations, descs):
+            out.append({"onset_sec": float(o), "duration_sec": float(d), "description": s})
+        return out
+    except Exception:
+        return []
+    
+
+
+    
 @dataclass
 class EpochDataset:
     """Container for EEG epoch data and metadata"""
