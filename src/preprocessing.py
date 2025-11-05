@@ -26,8 +26,15 @@ def raw_data_filter(raw: mne.io.BaseRaw, line_freq: int = 60) -> mne.io.BaseRaw:
 # Runs 3,7,11: Task 1 (real fists L/R) ; 4,8,12: Task 2 (imagined fists L/R)
 # Runs 5,9,13: Task 3 (real both-fists vs both-feet) ; 6,10,14: Task 4 (imagined both-fists vs both-feet)
 # T0=rest; T1=left (or both-fists); T2=right (or both-feet)
+MI_map = {"T0": "Rest", "T1": "Left MI", "T2": "Right MI"}
+
 _EEGBCI_FIST_RUNS = {3, 4, 7, 8, 11, 12}
 _EEGBCI_BOTH_RUNS = {5, 6, 9, 10, 13, 14}
+
+def _infer_subject_number_from_fname(fname: str | Path) -> Optional[int]:
+    subj_name = re.match(r'(?i)S0*(\d+)R0*(\d+)\.edf$', fname)
+    subj_number = int(subj_name.group(1)) if subj_name else None
+    return subj_number
 
 def _infer_run_number_from_fname(fname: str | Path) -> Optional[int]:
     m = re.search(r"R(\d{2})\.edf$", str(fname))
