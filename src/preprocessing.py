@@ -3,9 +3,10 @@ import numpy as np
 import mne
 from pathlib import Path
 import re
-from scipy.signal import iirnotch, filtfilt, butter
+from scipy.signal import iirnotch, filtfilt, butter, welch
 import pyedflib
 from .utils_io import read_all_channels
+import matplotlib.pyplot as plt
 
 def notch_filter(signal: np.ndarray, fs: float, f0: float = 60.0, Q: float = 30.0, n_harmonics: int = 3) -> np.ndarray:
     """
@@ -63,6 +64,31 @@ def preprocess_signal(signal: np.ndarray, sfreq: float, line_freq: int = 60, n_h
     signal = bandpass_filter(signal, sfreq, low_hz=l_freq, high_hz=h_freq, order=4)
     return signal
 
+def welch_psd(
+    x: np.ndarray,
+    fs: float,
+    nperseg: int = 1024,
+    noverlap: Optional[int] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute Welch PSD over frequency.
+
+    Args:
+        x: 1D signal (single channel).
+        fs: Sampling rate (Hz).
+        nperseg: Welch segment length.
+        noverlap: Welch overlap (samples). If None, uses nperseg//2.
+
+    Returns:
+        f: Frequencies (Hz)
+        psd: Power spectral density (V^2/Hz)
+    """
+    if noverlap is None:
+        noverlap = nperseg // 2
+
+    f, psd = welch(x, fs=fs, nperseg=nperseg, noverlap=noverlap, detrend="constant")
+
+    return f, psd
 
 def read_and_preprocess_all(
     reader: pyedflib.EdfReader,
@@ -101,9 +127,6 @@ def read_and_preprocess_all(
     for i in range(X.shape[0]):
         X_filt[i] = preprocess_signal(signal = X[i], sfreq=fs, line_freq=line_freq, n_harmonics=n_harmonics,l_freq=bp_lo, h_freq=bp_hi)
     return t, X_filt, fs, labels
-
-
-
 
 
 
