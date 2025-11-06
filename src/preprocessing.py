@@ -3,6 +3,63 @@ import numpy as np
 import mne
 from pathlib import Path
 import re
+from scipy.signal import iirnotch, filtfilt, butter
+
+def notch_filter(signal: np.ndarray, fs: float, f0: float = 60.0, Q: float = 30.0, n_harmonics: int = 3) -> np.ndarray:
+    """
+    Zero-phase notch filtering at f0 and its first n_harmonics (below Nyquist).
+
+    Args:
+        signal: 1D signal array.
+        fs: Sampling rate in Hz.
+        f0: Fundamental line frequency (e.g., 50 or 60 Hz).
+        Q: Quality factor for each notch.
+        n_harmonics: Number of harmonics to remove (1 = only f0).
+
+    Returns:
+        Filtered signal (same shape as signal).
+    """
+    nyq: float = fs / 2.0
+    y: np.ndarray = np.asarray(signal, dtype=float)
+
+    for k in range(1, n_harmonics + 1):
+        fk: float = f0 * k
+        if fk >= nyq - 1e-6:
+            break
+        w0: float = fk / nyq  # normalized freq for iirnotch
+        b, a = iirnotch(w0=w0, Q=Q)
+        y = filtfilt(b, a, y, method="pad", padlen=3 * max(len(a), len(b)))
+    return y
+
+
+def bandpass_filter(signal: np.ndarray, fs: float, low_hz: float = 1.0, high_hz: float = 40.0, order: int = 4) -> np.ndarray:
+    """
+    Zero-phase Butterworth band-pass.
+
+    Args:
+        signal: 1D signal array.
+        fs: Sampling rate in Hz.
+        low_hz: Low cutoff (Hz).
+        high_hz: High cutoff (Hz).
+        order: Filter order.
+
+    Returns:
+        Band-passed signal (same shape as signal).
+    """
+    nyq: float = fs / 2.0
+    lo: float = max(0.001, float(low_hz)) / nyq
+    hi: float = min(high_hz, nyq * 0.999) / nyq
+    if not (0 < lo < hi < 1):
+        raise ValueError(f"Invalid band for fs={fs}: low={low_hz}, high={high_hz}")
+
+    b, a = butter(order, [lo, hi], btype="bandpass")
+    return filtfilt(b, a, np.asarray(signal, dtype=float), method="pad", padlen=3 * max(len(a), len(b)))
+
+def preprocess_signal(signal: np.ndarray, sfreq: float, line_freq: int = 60, l_freq: float = 1.0, h_freq: float = 40.0) -> np.ndarray:
+    """Apply notch and bandpass filters to a single channel signal."""
+    signal = notch_filter(signal, sfreq, f0=line_freq)
+    signal = bandpass_filter(signal, sfreq, low_hz=l_freq, high_hz=h_freq, order=4)
+    return signal
 
 def notch_powerline(raw: mne.io.BaseRaw, line_freq: int = 60):
     sfreq = raw.info['sfreq']
