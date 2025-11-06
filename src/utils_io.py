@@ -12,7 +12,7 @@ from pathlib import Path
 from braindecode.models import EEGNet, ShallowFBCSPNet
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple, List, Sequence
 import pyedflib
 
 def edfMetadata(reader):
@@ -83,6 +83,46 @@ def read_annotations(reader):
         return []
     
 
+def read_all_channels(
+    reader: pyedflib.EdfReader,
+    start_sec: float = 0.0,
+    stop_sec: Optional[float] = None,
+    channel_labels: Optional[Sequence[str]] = None
+) -> Tuple[np.ndarray, np.ndarray, float, List[str]]:
+    """
+    Uses read_channel(reader, ch, start_sec, stop_sec) to grab all channels.
+
+    Args:
+        reader: Open pyedflib EdfReader.
+        start_sec: Start time (s).
+        stop_sec: Stop time (s). If None, reads to end.
+        channel_labels: Subset / order of labels to read. Defaults to all.
+
+    Returns:
+        t: Time axis (n_samples,)
+        data: Array of shape (n_channels, n_samples)
+        fs: Sampling rate (Hz)
+        labels: List of channel labels (length n_channels)
+    """
+    labels: List[str] = list(channel_labels) if channel_labels is not None else list(reader.getSignalLabels())
+    if len(labels) == 0:
+        raise ValueError("No channels found to read.")
+
+    # First channel establishes t, fs, length
+    t0, x0, fs0, _ = read_channel(reader, labels[0], start_sec=start_sec, stop_sec=stop_sec)
+    n_samples: int = int(x0.size)
+    traces: List[np.ndarray] = [np.asarray(x0, dtype=float)]
+
+    for lab in labels[1:]:
+        t, x, fs, _ = read_channel(reader, lab, start_sec=start_sec, stop_sec=stop_sec)
+        if fs != fs0:
+            raise ValueError(f"Sample rate mismatch: {lab} has fs={fs}, first channel fs={fs0}")
+        if x.size != n_samples:
+            raise ValueError(f"Length mismatch: {lab} has {x.size} samples vs {n_samples}")
+        traces.append(np.asarray(x, dtype=float))
+
+    data: np.ndarray = np.vstack(traces)  # (n_channels, n_samples)
+    return t0, data, fs0, labels
 
     
 @dataclass

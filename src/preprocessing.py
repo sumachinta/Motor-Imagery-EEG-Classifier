@@ -1,9 +1,11 @@
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Sequence
 import numpy as np
 import mne
 from pathlib import Path
 import re
 from scipy.signal import iirnotch, filtfilt, butter
+import pyedflib
+from .utils_io import read_all_channels
 
 def notch_filter(signal: np.ndarray, fs: float, f0: float = 60.0, Q: float = 30.0, n_harmonics: int = 3) -> np.ndarray:
     """
@@ -55,11 +57,55 @@ def bandpass_filter(signal: np.ndarray, fs: float, low_hz: float = 1.0, high_hz:
     b, a = butter(order, [lo, hi], btype="bandpass")
     return filtfilt(b, a, np.asarray(signal, dtype=float), method="pad", padlen=3 * max(len(a), len(b)))
 
-def preprocess_signal(signal: np.ndarray, sfreq: float, line_freq: int = 60, l_freq: float = 1.0, h_freq: float = 40.0) -> np.ndarray:
+def preprocess_signal(signal: np.ndarray, sfreq: float, line_freq: int = 60, n_harmonics: int = 3, l_freq: float = 1.0, h_freq: float = 40.0) -> np.ndarray:
     """Apply notch and bandpass filters to a single channel signal."""
-    signal = notch_filter(signal, sfreq, f0=line_freq)
+    signal = notch_filter(signal, sfreq, f0=line_freq, n_harmonics=n_harmonics)
     signal = bandpass_filter(signal, sfreq, low_hz=l_freq, high_hz=h_freq, order=4)
     return signal
+
+
+def read_and_preprocess_all(
+    reader: pyedflib.EdfReader,
+    start_sec: float = 0.0,
+    stop_sec: Optional[float] = None,
+    line_freq: float = 60.0,
+    n_harmonics: int = 3,
+    bp_lo: float = 1.0,
+    bp_hi: float = 40.0,
+    zscore: bool = False,
+    channel_labels: Optional[Sequence[str]] = None
+) -> Tuple[np.ndarray, np.ndarray, float, List[str]]:
+    """
+    Read all channels, then apply notch + band-pass .
+
+    Args:
+        reader: Open pyedflib EdfReader.
+        start_sec: Start time (s).
+        stop_sec: Stop time (s). If None, reads to end.
+        line_freq: Line frequency to notch out (Hz).
+        n_harmonics: Number of harmonics to remove (as long as < Nyquist).
+        bp_lo: Band-pass low cutoff (Hz).
+        bp_hi: Band-pass high cutoff (Hz).
+        zscore: If True, standardize each channel.
+        channel_labels: Optional subset/order of labels to read.
+
+    Returns:
+        t: Time axis (n_samples,)
+        X_filt: Preprocessed data (n_channels, n_samples)
+        fs: Sampling rate (Hz)
+        labels: Channel labels
+    """
+    t, X, fs, labels = read_all_channels(reader, start_sec, stop_sec, channel_labels)
+
+    X_filt: np.ndarray = np.empty_like(X, dtype=float)
+    for i in range(X.shape[0]):
+        X_filt[i] = preprocess_signal(signal = X[i], sfreq=fs, line_freq=line_freq, n_harmonics=n_harmonics,l_freq=bp_lo, h_freq=bp_hi)
+    return t, X_filt, fs, labels
+
+
+
+
+
 
 def notch_powerline(raw: mne.io.BaseRaw, line_freq: int = 60):
     sfreq = raw.info['sfreq']
